@@ -1,6 +1,7 @@
 package rabbitmq
 
 import (
+	"log"
 	"testing"
 	"time"
 )
@@ -73,11 +74,13 @@ func TestSendDelayQueue(t *testing.T) {
 
 func TestConsumer(t *testing.T) {
 	m := GetRabbitMQ()
-	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/develop")
+	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/")
 	if err != nil {
 		t.Error(err)
 	}
-	defer m.Close()
+	defer func(m *rabbitMQ) {
+		_ = m.Close()
+	}(m)
 	t.Log("Conn success")
 
 	if err = m.ExchangeQueueCreate(map[ExchangeName]*Exchange{
@@ -94,27 +97,27 @@ func TestConsumer(t *testing.T) {
 
 	go func() {
 		for {
-			_ = m.SendToExchange("test_exchange1", "abc")
-			//time.Sleep(2 * time.Second)
+			err = m.SendToExchange("test_exchange1", "abc")
+			t.Log("send abc", err, time.Now())
+			time.Sleep(2 * time.Second)
 		}
 	}()
 	go func() {
-		for {
-			err = m.RegisterConsumer("test_consumer1", &Consumer{
-				QueueName: "test_queue1",
-				ConsumeFunc: func(msg []byte) error {
-					t.Log(string(msg))
-					return nil
-				},
-			})
-			if err != nil {
-				return
-			}
-			err = m.consumerRun("", nil)
-			if err != nil {
-				return
-			}
+		select {
+		case err = <-m.notifyClose:
+			t.Log(err, 1231241241)
 		}
 	}()
+	go func() {
+		_ = m.RegisterConsumer("test_consumer1", &Consumer{
+			QueueName:   "test_queue1",
+			ConsumeFunc: handle,
+		})
+	}()
 	select {}
+}
+
+func handle(data []byte) error {
+	log.Println(data)
+	return nil
 }

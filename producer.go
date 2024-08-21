@@ -52,16 +52,7 @@ func (r *rabbitMQ) SendToDelayQueue(queueName QueueName, delay time.Duration, ms
 
 	if !exist {
 		// 自动创建不存在的延迟队列
-		ch, err := r.conn.Channel()
-		if err != nil {
-			return errors.Wrap(err, "获取mq通道失败")
-		}
-		defer func(ch *amqp.Channel) {
-			if ch == nil {
-				_ = ch.Close()
-			}
-		}(ch)
-		err = r.declareDelayQueue(exchangeName, queueName, delay)
+		err := r.declareDelayQueue(exchangeName, queueName, delay)
 		if err != nil {
 			return err
 		}
@@ -118,11 +109,7 @@ func (r *rabbitMQ) send(req *sendReq) error {
 	if err != nil {
 		return errors.Wrap(err, "获取mq通道失败")
 	}
-	defer func(ch *amqp.Channel) {
-		if ch == nil {
-			_ = ch.Close()
-		}
-	}(ch)
+	defer ch.Close()
 
 	for i := 0; i < r.sendRetryTime; i++ {
 		// 使用事务模式

@@ -31,29 +31,51 @@ var (
 
 type rabbitMQ struct {
 	conn                 *amqp.Connection
+	notifyClose          chan *amqp.Error
 	sendRetryTime        int                                      // 单个消息发送重试次数
 	queueDelayMap        map[QueueName]map[time.Duration]struct{} // 没有绑定到交换机的迟时队列延
 	exchangeMap          map[ExchangeName]*Exchange               // 交换机队列定义
 	queueExchangeMap     map[QueueName]ExchangeName               // 队列绑定到交换机
 	consumesRegisterLock sync.Mutex
-	consumes             map[string]*Consumer // 消费者
+	consumes             map[string]struct{} // 消费者
+	host                 string
+	port                 int
+	user                 string
+	password             string
+	vhost                string
 }
 
 func GetRabbitMQ() *rabbitMQ {
 	once.Do(func() {
 		mq = &rabbitMQ{
+			notifyClose:      make(chan *amqp.Error),
 			sendRetryTime:    3,
 			queueExchangeMap: make(map[QueueName]ExchangeName),
 			queueDelayMap:    make(map[QueueName]map[time.Duration]struct{}),
-			consumes:         make(map[string]*Consumer),
+			consumes:         make(map[string]struct{}),
 		}
 	})
 	return mq
 }
 
 func (r *rabbitMQ) Conn(host string, port int, user, password, vhost string) (err error) {
-	url := fmt.Sprintf("amqp://%s:%s@%s:%d%s", user, password, host, port, vhost)
-	r.conn, err = amqp.Dial(url)
+	r.host = host
+	r.port = port
+	r.user = user
+	r.password = password
+	r.vhost = vhost
+	return r.reConn()
+}
+
+func (r *rabbitMQ) reConn() (err error) {
+	if r.conn == nil || r.conn.IsClosed() {
+		url := fmt.Sprintf("amqp://%s:%s@%s:%d%s", r.user, r.password, r.host, r.port, r.vhost)
+		r.conn, err = amqp.Dial(url)
+		if err != nil {
+			return errors.Wrap(err, "连接RabbitMQ失败")
+		}
+		r.conn.NotifyClose(r.notifyClose)
+	}
 	return
 }
 
@@ -69,11 +91,7 @@ func (r *rabbitMQ) ExchangeQueueCreate(declare map[ExchangeName]*Exchange) error
 	if err != nil {
 		return errors.Wrap(err, "连接RabbitMQ失败")
 	}
-	defer func(ch *amqp.Channel) {
-		if ch != nil {
-			_ = ch.Close()
-		}
-	}(ch)
+	defer ch.Close()
 
 	r.exchangeMap = declare
 	for exchangeName, exchange := range r.exchangeMap {
@@ -143,11 +161,7 @@ func (r *rabbitMQ) declareBindExchangeDelayQueue(exchangeName ExchangeName, queu
 	if err != nil {
 		return errors.Wrap(err, "获取通道失败")
 	}
-	defer func(ch *amqp.Channel) {
-		if ch != nil {
-			_ = ch.Close()
-		}
-	}(ch)
+	defer ch.Close()
 
 	ttl := int64(delay / time.Millisecond)
 
@@ -167,11 +181,8 @@ func (r *rabbitMQ) declareDelayQueue(exchangeName ExchangeName, queueName QueueN
 	if err != nil {
 		return errors.Wrap(err, "获取通道失败")
 	}
-	defer func(ch *amqp.Channel) {
-		if ch != nil {
-			_ = ch.Close()
-		}
-	}(ch)
+	defer ch.Close()
+
 	// 计算延迟时间
 	ttl := int64(delay / time.Millisecond)
 

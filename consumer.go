@@ -84,11 +84,6 @@ func (r *rabbitMQ) handle(consumer *Consumer, msgChan <-chan amqp.Delivery) {
 			}
 		}
 
-		channel, err := r.conn.Channel()
-		if err != nil {
-			return
-		}
-		channel.Ack(msg.DeliveryTag, false)
 		err = msg.Ack(false)
 		if err != nil {
 			log.Printf("ack error: %+v", err)

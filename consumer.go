@@ -55,24 +55,18 @@ func (r *rabbitMQ) consumerRun(consumerName string, consumer *Consumer) error {
 
 // handle 处理逻辑
 func (r *rabbitMQ) handle(ch *amqp.Channel, consumer *Consumer, msgChan <-chan amqp.Delivery) {
-	defer func() {
-		if err := recover(); err != nil {
-			log.Printf("handle panic: %+v", err)
-		}
-	}()
-
 	for msg := range msgChan {
-		err := consumer.ConsumeFunc(msg.Body)
-		if err != nil {
+		_, errStr := r.done(consumer.ConsumeFunc, msg.Body)
+		if errStr != "" {
 			m := make(map[string]interface{})
 			// 解析json，添加错误信息和错误时间
-			err = json.Unmarshal(msg.Body, &m)
+			err := json.Unmarshal(msg.Body, &m)
 			if err != nil {
 				log.Printf("parse json error: %+v", err)
 				continue
 			}
 			// 添加错误和时间
-			m["dlx_err"] = fmt.Sprintf("%+v", err)
+			m["dlx_err"] = errStr
 			m["dlx_at"] = time.Now().Local().Format(time.DateTime)
 
 			// 发送到死信队列
@@ -84,15 +78,30 @@ func (r *rabbitMQ) handle(ch *amqp.Channel, consumer *Consumer, msgChan <-chan a
 		}
 
 		if r.conn.IsClosed() {
-			err = r.reConn()
+			err := r.reConn()
 			if err != nil {
 				log.Panicf("重连rabbitmq失败：%+v", err)
 			}
 			ch, _ = r.conn.Channel()
 		}
-		err = ch.Ack(msg.DeliveryTag, false)
+		err := ch.Ack(msg.DeliveryTag, false)
 		if err != nil {
 			log.Printf("ack error: %+v", err)
 		}
 	}
+}
+
+func (r *rabbitMQ) done(consumeFunc ConsumeFunc, msg []byte) (isPanic bool, errStr string) {
+	var err error
+	defer func() {
+		if err := recover(); err != nil {
+			isPanic = true
+			errStr = fmt.Sprintf("%+v", err)
+		}
+	}()
+	err = consumeFunc(msg)
+	if err != nil {
+		errStr = fmt.Sprintf("%+v", err)
+	}
+	return
 }

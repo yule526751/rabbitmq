@@ -1,7 +1,7 @@
 package rabbitmq
 
 import (
-	"log"
+	"github.com/pkg/errors"
 	"testing"
 	"time"
 )
@@ -118,6 +118,12 @@ func TestConsumer(t *testing.T) {
 }
 
 func handle(data []byte) error {
-	log.Println(data)
-	return nil
+	panic("asdf")
+	return errors.New("123")
+}
+
+func TestName(t *testing.T) {
+	m := GetRabbitMQ()
+	done, err := m.done(handle, []byte("abc"))
+	t.Log(done, err)
 }

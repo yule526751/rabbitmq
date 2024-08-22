@@ -2,7 +2,6 @@ package rabbitmq
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/pkg/errors"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"reflect"
@@ -75,15 +74,15 @@ func (r *rabbitMQ) convertMsg(msg interface{}) (data []byte, err error) {
 		ref = ref.Elem()
 	}
 	switch ref.Kind() {
-	case reflect.Struct, reflect.Map, reflect.Slice, reflect.Array:
-		// 结构体，map，数组转json
+	case reflect.Struct, reflect.Map:
+		// 结构体，map，转json
 		data, err = json.Marshal(msg)
 		if err != nil {
 			return nil, errors.Wrap(err, "消息序列json化失败")
 		}
 	default:
 		// 其他转字符串
-		data = []byte(fmt.Sprintf("%s", msg))
+		return nil, errors.New("消息类型只支持结构体和map")
 	}
 	return data, nil
 }

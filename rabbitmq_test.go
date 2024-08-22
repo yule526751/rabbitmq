@@ -8,7 +8,7 @@ import (
 
 func TestConn(t *testing.T) {
 	m := GetRabbitMQ()
-	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/develop")
+	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/")
 	if err != nil {
 		t.Error(err)
 	}
@@ -18,26 +18,28 @@ func TestConn(t *testing.T) {
 
 func TestSendExchange(t *testing.T) {
 	m := GetRabbitMQ()
-	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/develop")
+	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/")
 	if err != nil {
 		t.Error(err)
 	}
 	defer m.Close()
 	t.Log("Conn success")
 
-	if err = m.ExchangeQueueCreate(map[ExchangeName]*Exchange{
-		"test_exchange1": {
-			BindQueues: map[QueueName]*Queue{
-				"test_queue1": {},
-			},
-		},
-	}); err != nil {
-		t.Error(err)
-	} else {
-		t.Log("ExchangeQueueCreate success")
-	}
+	// if err = m.ExchangeQueueCreate(map[ExchangeName]*Exchange{
+	// 	"test_exchange1": {
+	// 		BindQueues: map[QueueName]*Queue{
+	// 			"test_queue1": {},
+	// 		},
+	// 	},
+	// }); err != nil {
+	// 	t.Error(err)
+	// } else {
+	// 	t.Log("ExchangeQueueCreate success")
+	// }
 
-	if err = m.SendToExchange("test_exchange1", "abc"); err != nil {
+	if err = m.SendToExchange("test_exchange1", map[string]interface{}{
+		"id": 1,
+	}); err != nil {
 		t.Error(err)
 	} else {
 		t.Log("SendToExchange success")
@@ -46,7 +48,7 @@ func TestSendExchange(t *testing.T) {
 
 func TestSendDelayQueue(t *testing.T) {
 	m := GetRabbitMQ()
-	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/develop")
+	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/")
 	if err != nil {
 		t.Error(err)
 	}
@@ -122,8 +124,31 @@ func handle(data []byte) error {
 	return errors.New("123")
 }
 
-func TestName(t *testing.T) {
+func TestBingDelayQueue(t *testing.T) {
 	m := GetRabbitMQ()
-	done, err := m.done(handle, []byte("abc"))
-	t.Log(done, err)
+	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/develop")
+	if err != nil {
+		t.Error(err)
+	}
+	defer func(m *rabbitMQ) {
+		_ = m.Close()
+	}(m)
+	t.Log("Conn success")
+	m.ExchangeQueueCreate(map[ExchangeName]*Exchange{
+		"test_exchange1": {
+			BindQueues: map[QueueName]*Queue{
+				"test_queue1": {},
+			},
+		},
+		"test_exchange2": {
+			BindQueues: map[QueueName]*Queue{
+				"test_queue2": {},
+			},
+		},
+	})
+	if err = m.BindDelayQueueToExchange("test_exchange1", "test_exchange2", 10*time.Second); err != nil {
+		t.Error(err)
+	} else {
+		t.Log("BindDelayQueueToExchange success")
+	}
 }

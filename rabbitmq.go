@@ -7,8 +7,8 @@ import (
 	"github.com/pkg/errors"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"io"
-	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -39,7 +39,6 @@ var (
 type rabbitMQ struct {
 	conn                 *amqp.Connection
 	notifyClose          chan *amqp.Error
-	sendRetryTime        int                                      // 单个消息发送重试次数
 	ackRetryTime         int                                      // 单个消息确认重试次数
 	queueDelayMap        map[QueueName]map[time.Duration]struct{} // 没有绑定到交换机的迟时队列延
 	exchangeMap          map[ExchangeName]*Exchange               // 交换机队列定义
@@ -48,6 +47,7 @@ type rabbitMQ struct {
 	consumes             map[string]struct{} // 消费者去重
 	host                 string
 	port                 int
+	managerPort          int
 	username             string
 	password             string
 	vhost                string
@@ -57,12 +57,12 @@ func GetRabbitMQ() *rabbitMQ {
 	once.Do(func() {
 		mq = &rabbitMQ{
 			notifyClose:      make(chan *amqp.Error),
-			sendRetryTime:    3,
 			ackRetryTime:     3,
 			queueDelayMap:    make(map[QueueName]map[time.Duration]struct{}),
 			exchangeMap:      make(map[ExchangeName]*Exchange),
 			queueExchangeMap: make(map[QueueName]ExchangeName),
 			consumes:         make(map[string]struct{}),
+			managerPort:      15672,
 		}
 	})
 	return mq
@@ -73,6 +73,9 @@ func (r *rabbitMQ) Conn(host string, port int, user, password, vhost string) (er
 	r.port = port
 	r.username = user
 	r.password = password
+	if vhost == "/" {
+		return errors.New("请不要使用/作为vhost")
+	}
 	r.vhost = vhost
 	return r.reConn()
 }
@@ -102,7 +105,9 @@ func (r *rabbitMQ) ExchangeQueueCreate(declare map[ExchangeName]*Exchange) error
 	if err != nil {
 		return errors.Wrap(err, "连接RabbitMQ失败")
 	}
-	defer ch.Close()
+	defer func(ch *amqp.Channel) {
+		_ = ch.Close()
+	}(ch)
 
 	r.exchangeMap = declare
 	for exchangeName, exchange := range r.exchangeMap {
@@ -114,13 +119,9 @@ func (r *rabbitMQ) ExchangeQueueCreate(declare map[ExchangeName]*Exchange) error
 		if err != nil {
 			return errors.Wrap(err, fmt.Sprintf("定义交换机%s错误", exchangeName))
 		}
-
-		if len(exchange.BindQueues) == 0 {
-			return errors.New(fmt.Sprintf("交换机%s定义错误，队列不能为空", exchangeName))
-		}
 	}
 	for exchangeName, exchange := range r.exchangeMap {
-		for queueName, queue := range exchange.BindQueues {
+		for queueName, v := range exchange.BindQueues {
 			// 定义队列
 			_, err = ch.QueueDeclare(string(queueName), true, false, false, false, nil)
 			if err != nil {
@@ -132,15 +133,15 @@ func (r *rabbitMQ) ExchangeQueueCreate(declare map[ExchangeName]*Exchange) error
 			// 绑定直连类型有没有路由都可以
 			case amqp.ExchangeFanout:
 				// 绑定扇出类型不需要路由
-				queue.RoutingKey = ""
+				v.RoutingKey = ""
 			default:
 				return errors.New(fmt.Sprintf("未定义的交换机类型%s", exchange.ExchangeType))
 			}
 
 			// 绑定路由
-			err = ch.QueueBind(string(queueName), queue.RoutingKey, string(exchangeName), false, nil)
+			err = ch.QueueBind(string(queueName), v.RoutingKey, string(exchangeName), false, nil)
 			if err != nil {
-				return err
+				return errors.Wrap(err, fmt.Sprintf("队列%s绑定交换机%s失败", queueName, exchangeName))
 			}
 
 			// 定义队列对应的死信接收队列
@@ -169,29 +170,34 @@ func (r *rabbitMQ) BindDelayQueueToExchange(fromExchangeName, toExchangeName Exc
 	if err != nil {
 		return errors.Wrap(err, "获取通道失败")
 	}
-	defer ch.Close()
+	defer func(ch *amqp.Channel) {
+		_ = ch.Close()
+	}(ch)
 	// 绑定路由
 	err = ch.QueueBind(string(exchangeDelayQueueName), "", string(fromExchangeName), false, nil)
 	if err != nil {
-		return err
+		return errors.Wrap(err, fmt.Sprintf("队列%s绑定交换机%s失败", exchangeDelayQueueName, fromExchangeName))
 	}
 
 	var bindings []*queue
 	bindings, err = r.getNeedUnbindDelayQueue(fromExchangeName)
 	if err != nil {
-		return err
+		return errors.Wrap(err, fmt.Sprintf("获取交换机%s需要解绑的延迟队列失败", fromExchangeName))
 	}
 	for _, binding := range bindings {
 		if binding.Destination == exchangeDelayQueueName {
 			continue
 		}
-		err = ch.QueueUnbind(string(binding.Destination), "", string(binding.Source), nil)
-		if err != nil {
-			return err
+		index := strings.Index(string(binding.Destination), "_transfer")
+		if index != -1 {
+			err = ch.QueueUnbind(string(binding.Destination), "", string(binding.Source), nil)
+			if err != nil {
+				return errors.Wrap(err, fmt.Sprintf("解绑交换机%s的队列%s失败", binding.Source, binding.Destination))
+			}
+			waitDeleteBindExchangeDelayQueueLock.Lock()
+			waitDeleteBindExchangeDelayQueue[binding.Destination] = struct{}{}
+			waitDeleteBindExchangeDelayQueueLock.Unlock()
 		}
-		waitDeleteBindExchangeDelayQueueLock.Lock()
-		waitDeleteBindExchangeDelayQueue[binding.Destination] = struct{}{}
-		waitDeleteBindExchangeDelayQueueLock.Unlock()
 	}
 
 	return nil
@@ -214,7 +220,9 @@ func (r *rabbitMQ) declareBindExchangeDelayQueue(exchangeName ExchangeName, queu
 	if err != nil {
 		return errors.Wrap(err, "获取通道失败")
 	}
-	defer ch.Close()
+	defer func(ch *amqp.Channel) {
+		_ = ch.Close()
+	}(ch)
 
 	ttl := int64(delay / time.Millisecond)
 
@@ -261,26 +269,28 @@ func (r *rabbitMQ) getDelayQueueName(queue QueueName, delay time.Duration) Queue
 
 func (r *rabbitMQ) getNeedUnbindDelayQueue(exchangeName ExchangeName) (bindings []*queue, err error) {
 	// 创建基本认证
-	url := fmt.Sprintf("http://%s:%d/api/exchanges/%s/%s/bindings/source", r.host, r.port, r.vhost, exchangeName)
+	url := fmt.Sprintf("http://%s:%d/api/exchanges%s/%s/bindings/source", r.host, 15672, r.vhost, exchangeName)
 	req, err := r.buildRequest(url)
 	if err != nil {
 		return nil, err
 	}
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "请求获取交换机绑定队列列表接口失败")
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
 	// 读取响应体
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Fatalf("Failed to read response body: %v", err)
+		return nil, errors.Wrap(err, "读取交换机绑定队列列表接口响应体失败")
 	}
 	// 解析 JSON 响应
 	bindings = make([]*queue, 0)
 	err = json.Unmarshal(body, &bindings)
 	if err != nil {
-		log.Fatalf("Failed to unmarshal JSON: %v", err)
+		return nil, errors.Wrap(err, "解析交换机绑定队列列表接口响应体失败")
 	}
 	return bindings, nil
 }
@@ -288,7 +298,7 @@ func (r *rabbitMQ) getNeedUnbindDelayQueue(exchangeName ExchangeName) (bindings 
 func (r *rabbitMQ) buildRequest(url string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "构建接口请求失败")
 	}
 	req.SetBasicAuth(r.username, r.password)
 	return req, nil

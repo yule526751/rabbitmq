@@ -13,10 +13,6 @@ func (r *rabbitMQ) SendToExchange(exchangeName ExchangeName, msg interface{}, ro
 	if exchangeName == "" {
 		return errors.New("交换机不能为空")
 	}
-	// 检查参数
-	if _, ok := r.exchangeMap[exchangeName]; !ok {
-		return errors.New(string("请先定义交换机" + exchangeName))
-	}
 
 	var rk string
 	if routingKey != nil && len(routingKey) > 0 {
@@ -108,39 +104,35 @@ func (r *rabbitMQ) send(req *sendReq) error {
 	if err != nil {
 		return errors.Wrap(err, "获取mq通道失败")
 	}
-	defer ch.Close()
+	defer func(ch *amqp.Channel) {
+		_ = ch.Close()
+	}(ch)
 
-	for i := 0; i < r.sendRetryTime; i++ {
-		// 使用事务模式
-		err = ch.Tx()
-		if err != nil {
-			err = errors.Wrap(err, "开启mq事务模式失败")
-			continue
-		}
-
-		// 延时队列的消息只通过路由发送到队列
-		if req.Delay > 0 {
-			req.Exchange = ""
-			req.RoutingKey = string(r.getDelayQueueName(req.Queue, req.Delay))
-		}
-
-		err = ch.Publish(string(req.Exchange), req.RoutingKey, false, false, amqp.Publishing{
-			ContentType: "text/plain",
-			Body:        body,
-		})
-		if err != nil {
-			_ = ch.TxRollback()
-			err = errors.Wrap(err, "消息发送失败")
-			continue
-		}
-
-		err = ch.TxCommit()
-		if err != nil {
-			err = errors.Wrap(err, "提交mq事务失败")
-			continue
-		}
-		break
+	// 使用事务模式
+	err = ch.Tx()
+	if err != nil {
+		return errors.Wrap(err, "开启mq事务模式失败")
 	}
 
-	return err
+	// 延时队列的消息只通过路由发送到队列
+	if req.Delay > 0 {
+		req.Exchange = ""
+		req.RoutingKey = string(r.getDelayQueueName(req.Queue, req.Delay))
+	}
+
+	err = ch.Publish(string(req.Exchange), req.RoutingKey, false, false, amqp.Publishing{
+		ContentType: "text/plain",
+		Body:        body,
+	})
+	if err != nil {
+		_ = ch.TxRollback()
+		return errors.Wrap(err, "消息发送失败")
+	}
+
+	err = ch.TxCommit()
+	if err != nil {
+		return errors.Wrap(err, "提交mq事务失败")
+	}
+
+	return nil
 }

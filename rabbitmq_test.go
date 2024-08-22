@@ -27,7 +27,7 @@ func TestSendExchange(t *testing.T) {
 
 	if err = m.ExchangeQueueCreate(map[ExchangeName]*Exchange{
 		"test_exchange1": {
-			Queues: map[QueueName]*Queue{
+			BindQueues: map[QueueName]*Queue{
 				"test_queue1": {},
 			},
 		},
@@ -55,7 +55,7 @@ func TestSendDelayQueue(t *testing.T) {
 
 	if err = m.ExchangeQueueCreate(map[ExchangeName]*Exchange{
 		"test_exchange1": {
-			Queues: map[QueueName]*Queue{
+			BindQueues: map[QueueName]*Queue{
 				"test_queue1": {},
 			},
 		},
@@ -85,7 +85,7 @@ func TestConsumer(t *testing.T) {
 
 	if err = m.ExchangeQueueCreate(map[ExchangeName]*Exchange{
 		"test_exchange1": {
-			Queues: map[QueueName]*Queue{
+			BindQueues: map[QueueName]*Queue{
 				"test_queue1": {},
 			},
 		},

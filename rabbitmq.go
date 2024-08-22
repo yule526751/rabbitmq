@@ -21,7 +21,7 @@ type Exchange struct {
 	ExchangeType string // 交换机类型
 	// 交换机绑定的队列列表，如果有延迟时间，则生成 队列名_(秒)s_transfer，
 	// 如果修改延迟时间，则生成新的队列并绑定，然后解绑旧的队列，旧队列需要确认消费完毕后手动删除
-	Queues map[QueueName]*Queue
+	BindQueues map[QueueName]*Queue
 }
 
 var (
@@ -104,12 +104,12 @@ func (r *rabbitMQ) ExchangeQueueCreate(declare map[ExchangeName]*Exchange) error
 			return errors.Wrap(err, fmt.Sprintf("定义交换机%s错误", exchangeName))
 		}
 
-		if len(exchange.Queues) == 0 {
+		if len(exchange.BindQueues) == 0 {
 			return errors.New(fmt.Sprintf("交换机%s定义错误，队列不能为空", exchangeName))
 		}
 	}
 	for exchangeName, exchange := range r.exchangeMap {
-		for queueName, queue := range exchange.Queues {
+		for queueName, queue := range exchange.BindQueues {
 			// 定义队列
 			_, err = ch.QueueDeclare(string(queueName), true, false, false, false, nil)
 			if err != nil {

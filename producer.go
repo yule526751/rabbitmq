@@ -100,6 +100,12 @@ func (r *rabbitMQ) send(req *sendReq) error {
 		return err
 	}
 
+	if r.conn.IsClosed() {
+		err = r.reConn()
+		if err != nil {
+			return err
+		}
+	}
 	ch, err := r.conn.Channel()
 	if err != nil {
 		return errors.Wrap(err, "获取mq通道失败")

@@ -1,7 +1,7 @@
 package rabbitmq
 
 import (
-	"github.com/pkg/errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -76,7 +76,7 @@ func TestSendDelayQueue(t *testing.T) {
 
 func TestConsumer(t *testing.T) {
 	m := GetRabbitMQ()
-	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/")
+	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/develop")
 	if err != nil {
 		t.Error(err)
 	}
@@ -99,7 +99,9 @@ func TestConsumer(t *testing.T) {
 
 	go func() {
 		for {
-			err = m.SendToExchange("test_exchange1", "abc")
+			err = m.SendToExchange("test_exchange1", map[string]interface{}{
+				"id": 1,
+			})
 			t.Log("send abc", err, time.Now())
 			time.Sleep(2 * time.Second)
 		}
@@ -108,6 +110,9 @@ func TestConsumer(t *testing.T) {
 		select {
 		case err = <-m.notifyClose:
 			t.Log(err, 1231241241)
+			if m.conn.IsClosed() {
+				_ = m.reConn()
+			}
 		}
 	}()
 	go func() {
@@ -120,8 +125,8 @@ func TestConsumer(t *testing.T) {
 }
 
 func handle(data []byte) error {
-	panic("asdf")
-	return errors.New("123")
+	fmt.Println(string(data), time.Now())
+	return nil
 }
 
 func TestBingDelayQueue(t *testing.T) {
@@ -146,7 +151,7 @@ func TestBingDelayQueue(t *testing.T) {
 			},
 		},
 	})
-	if err = m.BindDelayQueueToExchange("test_exchange1", "test_exchange2", 10*time.Second); err != nil {
+	if err = m.BindDelayQueueToExchange("test_exchange1", "test_exchange2", 20*time.Second); err != nil {
 		t.Error(err)
 	} else {
 		t.Log("BindDelayQueueToExchange success")

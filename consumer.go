@@ -70,23 +70,37 @@ func (r *rabbitMQ) handle(ch *amqp.Channel, consumer *Consumer, msgChan <-chan a
 			m["dlx_at"] = time.Now().Local().Format(time.DateTime)
 
 			// 发送到死信队列
-			body, _ := json.Marshal(m)
+			body, err := json.Marshal(m)
+			if err != nil {
+				log.Printf("parse json error: %+v", err)
+				continue
+			}
 			dlxQueueName := r.generateDlxQueueName(consumer.QueueName)
 			err = ch.Publish("", string(dlxQueueName), false, false, amqp.Publishing{ContentType: "text/plain", Body: body})
 			if err != nil {
+				log.Printf("send %s error: %+v", dlxQueueName, err)
 			}
 		}
 
-		if r.conn.IsClosed() {
-			err := r.reConn()
-			if err != nil {
-				log.Panicf("重连rabbitmq失败：%+v", err)
+		for i := 0; i < r.ackRetryTime; i++ {
+			if r.conn.IsClosed() {
+				err := r.reConn()
+				if err != nil {
+					log.Printf("重连rabbitmq失败：%+v", err)
+					continue
+				}
+				ch, err = r.conn.Channel()
+				if err != nil {
+					log.Printf("获取信道失败：%+v", err)
+					continue
+				}
 			}
-			ch, _ = r.conn.Channel()
-		}
-		err := ch.Ack(msg.DeliveryTag, false)
-		if err != nil {
-			log.Printf("ack error: %+v", err)
+			err := ch.Ack(msg.DeliveryTag, false)
+			if err != nil {
+				log.Printf("ack error: %+v", err)
+			} else {
+				break
+			}
 		}
 	}
 }

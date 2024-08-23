@@ -67,10 +67,10 @@ func TestSendDelayQueue(t *testing.T) {
 		t.Log("ExchangeQueueCreate success")
 	}
 
-	if err = m.SendToDelayQueue("test_queue1", 10*time.Second, "abc"); err != nil {
+	if err = m.SendToQueueDelay("test_queue1", 10*time.Second, "abc"); err != nil {
 		t.Error(err)
 	} else {
-		t.Log("SendToDelayQueue success")
+		t.Log("SendToQueueDelay success")
 	}
 }
 
@@ -156,4 +156,38 @@ func TestBingDelayQueue(t *testing.T) {
 	} else {
 		t.Log("BindDelayQueueToExchange success")
 	}
+}
+
+func TestSendToDelayQueue(t *testing.T) {
+	m := GetRabbitMQ()
+	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/develop")
+	if err != nil {
+		t.Error(err)
+	}
+	defer func(m *rabbitMQ) {
+		_ = m.Close()
+	}(m)
+	t.Log("Conn success")
+	err = m.SendToQueueDelay("test_queue2", 20*time.Second, map[string]interface{}{
+		"id": 1,
+	})
+	t.Log(err)
+	err = m.SendToQueueDelay("test_queue2", 20*time.Second, map[string]interface{}{
+		"id": 1,
+	})
+}
+func TestSendToQueue(t *testing.T) {
+	m := GetRabbitMQ()
+	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/develop")
+	if err != nil {
+		t.Error(err)
+	}
+	defer func(m *rabbitMQ) {
+		_ = m.Close()
+	}(m)
+	t.Log("Conn success")
+	err = m.SendToQueue("test_queue2", map[string]interface{}{
+		"id": 1,
+	})
+	t.Log(err)
 }

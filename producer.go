@@ -27,8 +27,21 @@ func (r *rabbitMQ) SendToExchange(exchangeName ExchangeName, msg interface{}, ro
 	})
 }
 
-// 发送延迟消息
-func (r *rabbitMQ) SendToDelayQueue(queueName QueueName, delay time.Duration, msg interface{}) error {
+// 发送消息到指定队列，不是交换机
+func (r *rabbitMQ) SendToQueue(queueName QueueName, msg interface{}) error {
+	// 检查参数
+	if queueName == "" {
+		return errors.New("队列不能为空")
+	}
+	// 直接发送
+	return r.send(&sendReq{
+		RoutingKey: string(queueName),
+		Msg:        msg,
+	})
+}
+
+// 发送延迟消息到指定队列，不是交换机
+func (r *rabbitMQ) SendToQueueDelay(queueName QueueName, delay time.Duration, msg interface{}) error {
 	// 检查参数
 	if queueName == "" {
 		return errors.New("队列不能为空")
@@ -37,17 +50,11 @@ func (r *rabbitMQ) SendToDelayQueue(queueName QueueName, delay time.Duration, ms
 		return errors.New("延迟时间必须大于等于1秒")
 	}
 
-	// 发给延迟队列要检查是否已定义队列和绑定交换机
-	exchangeName, ok := r.queueExchangeMap[queueName]
-	if !ok {
-		return errors.New(string("请先定义队列" + queueName))
-	}
-
 	_, exist := r.queueDelayMap[queueName][delay]
 
 	if !exist {
 		// 自动创建不存在的延迟队列
-		err := r.declareDelayQueue(exchangeName, queueName, delay)
+		err := r.declareDelayQueue(queueName, delay)
 		if err != nil {
 			return err
 		}

@@ -238,12 +238,14 @@ func (r *rabbitMQ) declareBindExchangeDelayQueue(exchangeName ExchangeName, queu
 }
 
 // 定义延迟队列
-func (r *rabbitMQ) declareDelayQueue(exchangeName ExchangeName, queueName QueueName, delay time.Duration) (err error) {
+func (r *rabbitMQ) declareDelayQueue(queueName QueueName, delay time.Duration) (err error) {
 	ch, err := r.conn.Channel()
 	if err != nil {
 		return errors.Wrap(err, "获取通道失败")
 	}
-	defer ch.Close()
+	defer func(ch *amqp.Channel) {
+		_ = ch.Close()
+	}(ch)
 
 	// 计算延迟时间
 	ttl := int64(delay / time.Millisecond)
@@ -252,13 +254,13 @@ func (r *rabbitMQ) declareDelayQueue(exchangeName ExchangeName, queueName QueueN
 
 	_, err = ch.QueueDeclare(string(delayQueueName), true, false, false, false, amqp.Table{
 		"x-message-ttl":             ttl, // 消息过期时间，毫秒
-		"x-dead-letter-exchange":    string(exchangeName),
-		"x-dead-letter-routing-key": "",
+		"x-dead-letter-exchange":    "",
+		"x-dead-letter-routing-key": string(queueName),
 	})
 	if err != nil {
 		return errors.Wrap(err, fmt.Sprintf("定义延迟队列%s错误", delayQueueName))
 	}
-	return nil
+	return
 }
 
 // 获取延迟队列名

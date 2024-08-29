@@ -68,6 +68,10 @@ func GetRabbitMQ() *rabbitMQ {
 	return mq
 }
 
+func (r *rabbitMQ) SetManagerPort(port int) {
+	r.managerPort = port
+}
+
 func (r *rabbitMQ) Conn(host string, port int, user, password, vhost string) (err error) {
 	r.host = host
 	r.port = port
@@ -271,7 +275,7 @@ func (r *rabbitMQ) getDelayQueueName(queue QueueName, delay time.Duration) Queue
 
 func (r *rabbitMQ) getNeedUnbindDelayQueue(exchangeName ExchangeName) (bindings []*queue, err error) {
 	// 创建基本认证
-	url := fmt.Sprintf("http://%s:%d/api/exchanges%s/%s/bindings/source", r.host, 15672, r.vhost, exchangeName)
+	url := fmt.Sprintf("http://%s:%d/api/exchanges%s/%s/bindings/source", r.host, r.managerPort, r.vhost, exchangeName)
 	req, err := r.buildRequest(url)
 	if err != nil {
 		return nil, err

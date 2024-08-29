@@ -192,7 +192,7 @@ func (r *rabbitMQ) BindDelayQueueToExchange(fromExchangeName, toExchangeName Exc
 		if binding.Destination == exchangeDelayQueueName {
 			continue
 		}
-		index := strings.Index(string(binding.Destination), "_transfer")
+		index := strings.Index(string(binding.Destination), string(toExchangeName))
 		if index != -1 {
 			err = ch.QueueUnbind(string(binding.Destination), "", string(binding.Source), nil)
 			if err != nil {

@@ -150,8 +150,18 @@ func TestBingDelayQueue(t *testing.T) {
 				"test_queue2": {},
 			},
 		},
+		"test_exchange3": {
+			BindQueues: map[QueueName]*Queue{
+				"test_queue3": {},
+			},
+		},
 	})
 	if err = m.BindDelayQueueToExchange("test_exchange1", "test_exchange2", 20*time.Second); err != nil {
+		t.Error(err)
+	} else {
+		t.Log("BindDelayQueueToExchange success")
+	}
+	if err = m.BindDelayQueueToExchange("test_exchange1", "test_exchange3", 40*time.Second); err != nil {
 		t.Error(err)
 	} else {
 		t.Log("BindDelayQueueToExchange success")

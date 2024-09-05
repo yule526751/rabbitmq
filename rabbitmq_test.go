@@ -186,6 +186,7 @@ func TestSendToDelayQueue(t *testing.T) {
 		"id": 1,
 	})
 }
+
 func TestSendToQueue(t *testing.T) {
 	m := GetRabbitMQ()
 	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/develop")

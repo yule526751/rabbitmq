@@ -3,10 +3,11 @@ package rabbitmq
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
-	amqp "github.com/rabbitmq/amqp091-go"
 	"log"
 	"time"
+
+	"github.com/pkg/errors"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type ConsumeFunc func(msg []byte) error
@@ -25,7 +26,9 @@ func (r *rabbitMQ) RegisterConsumer(consumerName string, consumer *Consumer) err
 	r.consumesRegisterLock.Lock()
 	defer r.consumesRegisterLock.Unlock()
 	r.consumes[consumerName] = struct{}{}
-	log.Printf("consumer %s register success\n", consumerName)
+	if r.openLog {
+		log.Printf("consumer %s register success\n", consumerName)
+	}
 	return r.consumerRun(consumerName, consumer)
 }
 
@@ -49,7 +52,9 @@ func (r *rabbitMQ) consumerRun(consumerName string, consumer *Consumer) error {
 	// handle 处理逻辑
 	go r.handle(ch, consumer, msgChan)
 
-	log.Printf("consumer %s listen queue %s run....\n", consumerName, consumer.QueueName)
+	if r.openLog {
+		log.Printf("consumer %s listen queue %s run....\n", consumerName, consumer.QueueName)
+	}
 	return nil
 }
 
@@ -62,7 +67,9 @@ func (r *rabbitMQ) handle(ch *amqp.Channel, consumer *Consumer, msgChan <-chan a
 			// 解析json，添加错误信息和错误时间
 			err := json.Unmarshal(msg.Body, &m)
 			if err != nil {
-				log.Printf("parse json error: %+v", err)
+				if r.openLog {
+					log.Printf("parse json error: %+v", err)
+				}
 				continue
 			}
 			// 添加错误和时间
@@ -72,13 +79,17 @@ func (r *rabbitMQ) handle(ch *amqp.Channel, consumer *Consumer, msgChan <-chan a
 			// 发送到死信队列
 			body, err := json.Marshal(m)
 			if err != nil {
-				log.Printf("parse json error: %+v", err)
+				if r.openLog {
+					log.Printf("parse json error: %+v", err)
+				}
 				continue
 			}
 			dlxQueueName := r.generateDlxQueueName(consumer.QueueName)
 			err = ch.Publish("", string(dlxQueueName), false, false, amqp.Publishing{ContentType: "text/plain", Body: body})
 			if err != nil {
-				log.Printf("send %s error: %+v", dlxQueueName, err)
+				if r.openLog {
+					log.Printf("send %s error: %+v", dlxQueueName, err)
+				}
 			}
 		}
 
@@ -86,18 +97,25 @@ func (r *rabbitMQ) handle(ch *amqp.Channel, consumer *Consumer, msgChan <-chan a
 			if r.conn.IsClosed() {
 				err := r.reConn()
 				if err != nil {
-					log.Printf("重连rabbitmq失败：%+v", err)
+					if r.openLog {
+						log.Printf("重连rabbitmq失败：%+v", err)
+					}
 					continue
 				}
 				ch, err = r.conn.Channel()
 				if err != nil {
-					log.Printf("获取信道失败：%+v", err)
+					if r.openLog {
+						log.Printf("获取信道失败：%+v", err)
+					}
+
 					continue
 				}
 			}
 			err := ch.Ack(msg.DeliveryTag, false)
 			if err != nil {
-				log.Printf("ack error: %+v", err)
+				if r.openLog {
+					log.Printf("ack error: %+v", err)
+				}
 			} else {
 				break
 			}

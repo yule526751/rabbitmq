@@ -2,10 +2,11 @@ package rabbitmq
 
 import (
 	"encoding/json"
-	"github.com/pkg/errors"
-	amqp "github.com/rabbitmq/amqp091-go"
 	"reflect"
 	"time"
+
+	"github.com/pkg/errors"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // 发送消息到交换机
@@ -71,6 +72,7 @@ func (r *rabbitMQ) SendToQueueDelay(queueName QueueName, delay time.Duration, ms
 		Delay: delay,
 	})
 }
+
 func (r *rabbitMQ) convertMsg(msg interface{}) (data []byte, err error) {
 	ref := reflect.TypeOf(msg)
 	for ref.Kind() == reflect.Ptr {

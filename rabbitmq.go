@@ -4,17 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
-	amqp "github.com/rabbitmq/amqp091-go"
 	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pkg/errors"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-type ExchangeName string
-type QueueName string
+type (
+	ExchangeName string
+	QueueName    string
+)
 
 // 队列
 type Queue struct {
@@ -51,6 +54,7 @@ type rabbitMQ struct {
 	username             string
 	password             string
 	vhost                string
+	openLog              bool
 }
 
 func GetRabbitMQ() *rabbitMQ {
@@ -63,9 +67,14 @@ func GetRabbitMQ() *rabbitMQ {
 			queueExchangeMap: make(map[QueueName]ExchangeName),
 			consumes:         make(map[string]struct{}),
 			managerPort:      15672,
+			openLog:          true,
 		}
 	})
 	return mq
+}
+
+func (r *rabbitMQ) SetDebug(openLog bool) {
+	r.openLog = openLog
 }
 
 func (r *rabbitMQ) SetManagerPort(port int) {
@@ -316,7 +325,6 @@ type queue struct {
 	Destination     QueueName    `json:"destination"`
 	DestinationType string       `json:"destination_type"`
 	RoutingKey      string       `json:"routing_key"`
-	Arguments       struct {
-	} `json:"arguments"`
-	PropertiesKey string `json:"properties_key"`
+	Arguments       struct{}     `json:"arguments"`
+	PropertiesKey   string       `json:"properties_key"`
 }

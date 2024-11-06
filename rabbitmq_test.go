@@ -8,7 +8,7 @@ import (
 
 func TestConn(t *testing.T) {
 	m := GetRabbitMQ()
-	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/")
+	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "develop")
 	if err != nil {
 		t.Error(err)
 	}
@@ -18,24 +18,24 @@ func TestConn(t *testing.T) {
 
 func TestSendExchange(t *testing.T) {
 	m := GetRabbitMQ()
-	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/")
+	err := m.Conn("127.0.0.1", 5672, "admin", "123456", "/develop")
 	if err != nil {
 		t.Error(err)
 	}
 	defer m.Close()
 	t.Log("Conn success")
 
-	// if err = m.ExchangeQueueCreate(map[ExchangeName]*Exchange{
-	// 	"test_exchange1": {
-	// 		BindQueues: map[QueueName]*Queue{
-	// 			"test_queue1": {},
-	// 		},
-	// 	},
-	// }); err != nil {
-	// 	t.Error(err)
-	// } else {
-	// 	t.Log("ExchangeQueueCreate success")
-	// }
+	if err = m.ExchangeQueueCreate(map[ExchangeName]*Exchange{
+		"test_exchange1": {
+			BindQueues: map[QueueName]*Queue{
+				"test_queue1": {},
+			},
+		},
+	}); err != nil {
+		t.Error(err)
+	} else {
+		t.Log("ExchangeQueueCreate success")
+	}
 
 	if err = m.SendToExchange("test_exchange1", map[string]interface{}{
 		"id": 1,

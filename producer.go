@@ -136,8 +136,9 @@ func (r *rabbitMQ) send(req *sendReq) error {
 	}
 
 	err = ch.Publish(string(req.Exchange), req.RoutingKey, false, false, amqp.Publishing{
-		ContentType: "text/plain",
-		Body:        body,
+		ContentType:  "text/plain",
+		Body:         body,
+		DeliveryMode: 2, // 持久化消息
 	})
 	if err != nil {
 		_ = ch.TxRollback()

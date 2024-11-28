@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/yule526751/rabbitmq/models"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -40,34 +44,38 @@ var (
 )
 
 type rabbitMQ struct {
-	conn                 *amqp.Connection
-	notifyClose          chan *amqp.Error
-	ackRetryTime         int                                      // 单个消息确认重试次数
-	queueDelayMap        map[QueueName]map[time.Duration]struct{} // 没有绑定到交换机的迟时队列延
-	exchangeMap          map[ExchangeName]*Exchange               // 交换机队列定义
-	queueExchangeMap     map[QueueName]ExchangeName               // 队列绑定到交换机
-	consumesRegisterLock sync.Mutex
-	consumes             map[string]struct{} // 消费者去重
-	host                 string
-	port                 int
-	managerPort          int
-	username             string
-	password             string
-	vhost                string
-	openLog              bool
+	conn                  *amqp.Connection
+	notifyClose           chan *amqp.Error
+	ackRetryTime          int                                      // 单个消息确认重试次数
+	queueDelayMap         map[QueueName]map[time.Duration]struct{} // 没有绑定到交换机的迟时队列延
+	exchangeMap           map[ExchangeName]*Exchange               // 交换机队列定义
+	queueExchangeMap      map[QueueName]ExchangeName               // 队列绑定到交换机
+	consumesRegisterLock  sync.Mutex
+	consumes              map[string]struct{} // 消费者去重
+	host                  string
+	port                  int
+	managerPort           int
+	username              string
+	password              string
+	vhost                 string
+	openLog               bool
+	circulateInterval     time.Duration // 循环发送消息间隔，默认1s
+	maxCirculateSendCount int           // 单次循环最大发送数量
 }
 
 func GetRabbitMQ() *rabbitMQ {
 	once.Do(func() {
 		mq = &rabbitMQ{
-			notifyClose:      make(chan *amqp.Error),
-			ackRetryTime:     3,
-			queueDelayMap:    make(map[QueueName]map[time.Duration]struct{}),
-			exchangeMap:      make(map[ExchangeName]*Exchange),
-			queueExchangeMap: make(map[QueueName]ExchangeName),
-			consumes:         make(map[string]struct{}),
-			managerPort:      15672,
-			openLog:          true,
+			notifyClose:           make(chan *amqp.Error),
+			ackRetryTime:          3,
+			queueDelayMap:         make(map[QueueName]map[time.Duration]struct{}),
+			exchangeMap:           make(map[ExchangeName]*Exchange),
+			queueExchangeMap:      make(map[QueueName]ExchangeName),
+			consumes:              make(map[string]struct{}),
+			managerPort:           15672,
+			openLog:               true,
+			circulateInterval:     time.Second,
+			maxCirculateSendCount: 200,
 		}
 	})
 	return mq
@@ -75,6 +83,19 @@ func GetRabbitMQ() *rabbitMQ {
 
 func (r *rabbitMQ) SetDebug(openLog bool) {
 	r.openLog = openLog
+}
+func (r *rabbitMQ) SetCirculateInterval(s time.Duration) {
+	if s <= time.Second {
+		s = time.Second
+	}
+	r.circulateInterval = s
+}
+
+func (r *rabbitMQ) SetMaxCirculateSendCount(n int) {
+	if n <= 0 {
+		n = 200
+	}
+	r.maxCirculateSendCount = n
 }
 
 func (r *rabbitMQ) SetManagerPort(port int) {
@@ -91,6 +112,50 @@ func (r *rabbitMQ) Conn(host string, port int, user, password, vhost string) (er
 	}
 	r.vhost = vhost
 	return r.reConn()
+}
+
+func (r *rabbitMQ) CirculateSendMsg(ctx context.Context, db *gorm.DB) {
+	// TODO 使用ctx 取消循环
+	for {
+		// 查询消息数量，如果队列为空，则返回
+		var count int64
+		db.Model(&models.RabbitmqMsg{}).Count(&count)
+		if count == 0 {
+			time.Sleep(r.circulateInterval)
+			continue
+		}
+		var loopCount int
+		if count > 200 {
+			loopCount = 200
+		} else {
+			loopCount = int(count)
+		}
+		// 开启事务，查询数据，发送消息后删除数据
+		for i := 0; i < loopCount; i++ {
+			err := db.Transaction(func(tx *gorm.DB) error {
+				var msg *models.RabbitmqMsg
+				err := tx.Model(&models.RabbitmqMsg{}).Clauses(clause.Locking{Strength: "UPDATE"}).Order("id asc").First(&msg).Error
+				if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+					return err
+				}
+				err = r.send(&sendReq{
+					Exchange:   ExchangeName(msg.ExchangeName),
+					Queue:      QueueName(msg.QueueName),
+					RoutingKey: msg.RoutingKey,
+					Msg:        msg.Msg,
+					Delay:      time.Duration(msg.Delay) * time.Second,
+				})
+				if err != nil {
+					return err
+				}
+				return tx.Unscoped().Delete(&models.RabbitmqMsg{}, msg.ID).Error
+			})
+			if err != nil {
+				log.Printf("mq循环发送消息失败:%v", err)
+			}
+		}
+		time.Sleep(r.circulateInterval)
+	}
 }
 
 func (r *rabbitMQ) reConn() (err error) {

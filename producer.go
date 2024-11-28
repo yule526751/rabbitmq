@@ -2,6 +2,9 @@ package rabbitmq
 
 import (
 	"encoding/json"
+	"github.com/shopspring/decimal"
+	"github.com/yule526751/rabbitmq/models"
+	"gorm.io/gorm"
 	"reflect"
 	"time"
 
@@ -28,6 +31,32 @@ func (r *rabbitMQ) SendToExchange(exchangeName ExchangeName, msg interface{}, ro
 	})
 }
 
+// 发送消息到交换机
+func (r *rabbitMQ) SendToExchangeTx(tx *gorm.DB, exchangeName ExchangeName, msg interface{}, routingKey ...string) (err error) {
+	if exchangeName == "" {
+		return errors.New("交换机不能为空")
+	}
+
+	var rk string
+	if routingKey != nil && len(routingKey) > 0 {
+		rk = routingKey[0]
+	}
+	// 断言消息类型
+	body, err := r.convertMsg(msg)
+	if err != nil {
+		return err
+	}
+	err = tx.Model(&models.RabbitmqMsg{}).Create(&models.RabbitmqMsg{
+		ExchangeName: string(exchangeName),
+		Msg:          body,
+		RoutingKey:   rk,
+	}).Error
+	if err != nil {
+		return errors.New("创建队列消息记录失败")
+	}
+	return nil
+}
+
 // 发送消息到指定队列，不是交换机
 func (r *rabbitMQ) SendToQueue(queueName QueueName, msg interface{}) error {
 	// 检查参数
@@ -39,6 +68,27 @@ func (r *rabbitMQ) SendToQueue(queueName QueueName, msg interface{}) error {
 		RoutingKey: string(queueName),
 		Msg:        msg,
 	})
+}
+
+// 发送消息到指定队列，不是交换机
+func (r *rabbitMQ) SendToQueueTx(tx *gorm.DB, queueName QueueName, msg interface{}) error {
+	// 检查参数
+	if queueName == "" {
+		return errors.New("队列不能为空")
+	}
+	// 断言消息类型
+	body, err := r.convertMsg(msg)
+	if err != nil {
+		return err
+	}
+	err = tx.Model(&models.RabbitmqMsg{}).Create(&models.RabbitmqMsg{
+		Msg:        body,
+		RoutingKey: string(queueName),
+	}).Error
+	if err != nil {
+		return errors.New("创建队列消息记录失败")
+	}
+	return nil
 }
 
 // 发送延迟消息到指定队列，不是交换机
@@ -73,6 +123,46 @@ func (r *rabbitMQ) SendToQueueDelay(queueName QueueName, delay time.Duration, ms
 	})
 }
 
+// 发送延迟消息到指定队列，不是交换机
+func (r *rabbitMQ) SendToQueueDelayTx(tx *gorm.DB, queueName QueueName, delay time.Duration, msg interface{}) error {
+	// 检查参数
+	if queueName == "" {
+		return errors.New("队列不能为空")
+	}
+	if delay <= time.Second {
+		return errors.New("延迟时间必须大于等于1秒")
+	}
+
+	_, exist := r.queueDelayMap[queueName][delay]
+	if !exist {
+		// 自动创建不存在的延迟队列
+		err := r.declareDelayQueue(queueName, delay)
+		if err != nil {
+			return err
+		}
+		if _, ok := r.queueDelayMap[queueName]; !ok {
+			r.queueDelayMap[queueName] = make(map[time.Duration]struct{})
+		}
+		r.queueDelayMap[queueName][delay] = struct{}{}
+	}
+	// 断言消息类型
+	body, err := r.convertMsg(msg)
+	if err != nil {
+		return err
+	}
+
+	d := decimal.NewFromInt(int64(delay)).Div(decimal.NewFromInt(int64(time.Second))).IntPart()
+	err = tx.Model(&models.RabbitmqMsg{}).Create(&models.RabbitmqMsg{
+		QueueName: string(queueName),
+		Msg:       body,
+		Delay:     uint64(d),
+	}).Error
+	if err != nil {
+		return errors.New("创建队列消息记录失败")
+	}
+	return nil
+}
+
 func (r *rabbitMQ) convertMsg(msg interface{}) (data []byte, err error) {
 	ref := reflect.TypeOf(msg)
 	for ref.Kind() == reflect.Ptr {
@@ -85,6 +175,11 @@ func (r *rabbitMQ) convertMsg(msg interface{}) (data []byte, err error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "消息序列json化失败")
 		}
+	case reflect.Slice:
+		if ref.Elem().Kind() == reflect.Uint8 {
+			return msg.([]byte), nil
+		}
+		return nil, errors.New("消息类型只支持结构体和map")
 	default:
 		// 其他转字符串
 		return nil, errors.New("消息类型只支持结构体和map")

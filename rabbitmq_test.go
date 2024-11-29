@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/yule526751/rabbitmq/models"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -89,7 +90,9 @@ func TestSentExchangeTX(t *testing.T) {
 	}
 	initMysql()
 	err = Mysql.Transaction(func(tx *gorm.DB) error {
-		return m.SendToExchangeTx(tx, "test_exchange1", map[string]interface{}{"id": 1})
+		return m.SendToExchangeTx(func(data *models.RabbitmqMsg) error {
+			return tx.Model(&models.RabbitmqMsg{}).Create(data).Error
+		}, "test_exchange1", map[string]interface{}{"id": 1})
 	})
 	if err != nil {
 		t.Error(err)
@@ -135,7 +138,9 @@ func TestSendDelayQueueTx(t *testing.T) {
 
 	initMysql()
 	err = Mysql.Transaction(func(tx *gorm.DB) error {
-		return m.SendToQueueDelayTx(tx, "test_queue1", 10*time.Second, map[string]interface{}{"id": 1})
+		return m.SendToQueueDelayTx(func(data *models.RabbitmqMsg) error {
+			return tx.Model(&models.RabbitmqMsg{}).Create(data).Error
+		}, "test_queue1", 10*time.Second, map[string]interface{}{"id": 1})
 	})
 	if err != nil {
 		t.Error(err)
@@ -283,7 +288,9 @@ func TestSendToQueueTx(t *testing.T) {
 	t.Log("Conn success")
 	initMysql()
 	err = Mysql.Transaction(func(tx *gorm.DB) error {
-		return m.SendToQueueTx(tx, "test_queue1", map[string]interface{}{"id": 1})
+		return m.SendToQueueTx(func(data *models.RabbitmqMsg) error {
+			return tx.Model(&models.RabbitmqMsg{}).Create(data).Error
+		}, "test_queue1", map[string]interface{}{"id": 1})
 	})
 	if err != nil {
 		t.Error(err)

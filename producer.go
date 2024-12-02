@@ -49,6 +49,8 @@ func (r *rabbitMQ) SendToExchangeTx(f func(data *models.RabbitmqMsg) error, exch
 		ExchangeName: string(exchangeName),
 		Msg:          body,
 		RoutingKey:   rk,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 	})
 	if err != nil {
 		return errors.New("创建队列消息记录失败")
@@ -83,6 +85,8 @@ func (r *rabbitMQ) SendToQueueTx(f func(data *models.RabbitmqMsg) error, queueNa
 	err = f(&models.RabbitmqMsg{
 		Msg:        body,
 		RoutingKey: string(queueName),
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
 	})
 	if err != nil {
 		return errors.New("创建队列消息记录失败")
@@ -155,6 +159,8 @@ func (r *rabbitMQ) SendToQueueDelayTx(f func(data *models.RabbitmqMsg) error, qu
 		QueueName: string(queueName),
 		Msg:       body,
 		Delay:     uint64(d),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	})
 	if err != nil {
 		return errors.New("创建队列消息记录失败")

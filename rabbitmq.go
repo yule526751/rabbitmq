@@ -264,10 +264,44 @@ func (r *rabbitMQ) BindDelayQueueToExchange(fromExchangeName, toExchangeName Exc
 	}
 	for _, binding := range bindings {
 		if binding.Destination == exchangeDelayQueueName {
+			// 延迟队列名相同，则跳过
 			continue
 		}
 		index := strings.Index(string(binding.Destination), string(toExchangeName))
-		if index != -1 {
+		if index == 0 {
+			// 延迟队列名前缀相同，则解绑
+			err = ch.QueueUnbind(string(binding.Destination), "", string(binding.Source), nil)
+			if err != nil {
+				return errors.Wrap(err, fmt.Sprintf("解绑交换机%s的队列%s失败", binding.Source, binding.Destination))
+			}
+			waitDeleteBindExchangeDelayQueueLock.Lock()
+			waitDeleteBindExchangeDelayQueue[binding.Destination] = struct{}{}
+			waitDeleteBindExchangeDelayQueueLock.Unlock()
+		}
+	}
+
+	return nil
+}
+
+// 从交换机解绑前缀相同的延迟队列
+func (r *rabbitMQ) UnbindDelayQueueFromExchange(fromExchangeName, toExchangeName ExchangeName) error {
+	ch, err := r.conn.Channel()
+	if err != nil {
+		return errors.Wrap(err, "获取通道失败")
+	}
+	defer func(ch *amqp.Channel) {
+		_ = ch.Close()
+	}(ch)
+
+	var bindings []*queue
+	bindings, err = r.getNeedUnbindDelayQueue(fromExchangeName)
+	if err != nil {
+		return errors.Wrap(err, fmt.Sprintf("获取交换机%s需要解绑的延迟队列失败", fromExchangeName))
+	}
+	for _, binding := range bindings {
+		index := strings.Index(string(binding.Destination), string(toExchangeName))
+		if index == 0 {
+			// 延迟队列名前缀相同，则解绑
 			err = ch.QueueUnbind(string(binding.Destination), "", string(binding.Source), nil)
 			if err != nil {
 				return errors.Wrap(err, fmt.Sprintf("解绑交换机%s的队列%s失败", binding.Source, binding.Destination))

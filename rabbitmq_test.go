@@ -239,6 +239,29 @@ func TestBingDelayQueue(t *testing.T) {
 	} else {
 		t.Log("BindDelayQueueToExchange success")
 	}
+	if err = m.BindDelayQueueToExchange("test_exchange2", "test_exchange3", 40*time.Second); err != nil {
+		t.Error(err)
+	} else {
+		t.Log("BindDelayQueueToExchange success")
+	}
+}
+
+func TestUnbindDelayQueueFromExchange(t *testing.T) {
+	m := GetRabbitMQ()
+	err := m.Conn(rabbitmqHost, rabbitmqPort, rabbitmqUser, rabbitmqPassword, rabbitmqVhost)
+	if err != nil {
+		t.Error(err)
+	}
+	defer func(m *rabbitMQ) {
+		_ = m.Close()
+	}(m)
+	t.Log("Conn success")
+	err = m.UnbindDelayQueueFromExchange("test_exchange1", "test_exchange3")
+	if err != nil {
+		t.Error(err)
+	} else {
+		t.Log("UnbindDelayQueueFromExchange success")
+	}
 }
 
 func TestSendToDelayQueue(t *testing.T) {

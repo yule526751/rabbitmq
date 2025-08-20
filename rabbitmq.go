@@ -315,6 +315,18 @@ func (r *rabbitMQ) UnbindDelayQueueFromExchange(fromExchangeName, toExchangeName
 	return nil
 }
 
+// 获取队列长度
+func (r *rabbitMQ) GetQueuesLength(exclude []string) (map[string]int, error) {
+	ch, err := r.conn.Channel()
+	if err != nil {
+		return nil, errors.Wrap(err, "获取通道失败")
+	}
+	defer func(ch *amqp.Channel) {
+		_ = ch.Close()
+	}(ch)
+	return r.getQueuesMessageCount(exclude)
+}
+
 // 生成死信队列名
 func (r *rabbitMQ) generateDlxQueueName(qn QueueName) QueueName {
 	return QueueName(fmt.Sprintf("%s_dlx", qn))
@@ -409,6 +421,51 @@ func (r *rabbitMQ) getNeedUnbindDelayQueue(exchangeName ExchangeName) (bindings 
 	return bindings, nil
 }
 
+func (r *rabbitMQ) getQueuesMessageCount(exclude []string) (map[string]int, error) {
+	// 创建基本认证
+	url := fmt.Sprintf("http://%s:%d/api/queues%s", r.host, r.managerPort, r.vhost)
+	req, err := r.buildRequest(url)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "请求获取队列列表接口失败")
+	}
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
+	// 读取响应体
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "读取队列列表接口响应体失败")
+	}
+	// 解析 JSON 响应
+	var dlxQueueInfos = make([]*dlxQueueInfo, 0)
+	err = json.Unmarshal(body, &dlxQueueInfos)
+	if err != nil {
+		return nil, errors.Wrap(err, "解析队列列表接口响应体失败")
+	}
+	var m = make(map[string]int)
+	for _, v := range dlxQueueInfos {
+		if v.Messages == 0 {
+			continue
+		}
+		var ex bool
+		for _, s := range exclude {
+			if strings.Index(v.Name, s) != -1 {
+				ex = true
+				break
+			}
+		}
+		if ex {
+			continue
+		}
+		m[v.Name] = v.Messages
+	}
+	return m, nil
+}
+
 func (r *rabbitMQ) buildRequest(url string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
@@ -426,4 +483,9 @@ type queue struct {
 	RoutingKey      string       `json:"routing_key"`
 	Arguments       struct{}     `json:"arguments"`
 	PropertiesKey   string       `json:"properties_key"`
+}
+
+type dlxQueueInfo struct {
+	Messages int    `json:"messages"`
+	Name     string `json:"name"`
 }

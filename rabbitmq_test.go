@@ -335,6 +335,23 @@ func TestCirculateSendMsg(t *testing.T) {
 	m.CirculateSendMsg(context.Background(), Mysql)
 }
 
+func TestGetQueuesMessageCount(t *testing.T) {
+	m := GetRabbitMQ()
+	err := m.Conn(rabbitmqHost, rabbitmqPort, rabbitmqUser, rabbitmqPassword, rabbitmqVhost)
+	if err != nil {
+		t.Error(err)
+	}
+	defer func(m *rabbitMQ) {
+		_ = m.Close()
+	}(m)
+	t.Log("Conn success")
+	count, err := m.getQueuesMessageCount([]string{"precheck"})
+	if err != nil {
+		return
+	}
+	t.Log(count)
+}
+
 var Mysql *gorm.DB
 
 func initMysql() {

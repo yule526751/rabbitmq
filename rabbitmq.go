@@ -212,6 +212,7 @@ func (r *rabbitMQ) ExchangeQueueCreate(declare map[ExchangeName]*Exchange) error
 			case amqp.ExchangeFanout:
 				// 绑定扇出类型不需要路由
 				v.RoutingKey = ""
+			case amqp.ExchangeTopic:
 			default:
 				return errors.New(fmt.Sprintf("未定义的交换机类型%s", exchange.ExchangeType))
 			}

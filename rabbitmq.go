@@ -317,7 +317,9 @@ func (r *rabbitMQ) UnbindDelayQueueFromExchange(fromExchangeName, toExchangeName
 }
 
 // 获取队列长度
-func (r *rabbitMQ) GetQueuesLength(exclude []string) (map[string]int, error) {
+// exclude 排除的队列名，模糊匹配
+// onlyInclude 只包含的队列名，模糊匹配，如果为空则不是全部
+func (r *rabbitMQ) GetQueuesLength(exclude, onlyInclude []string) (map[string]int, error) {
 	ch, err := r.conn.Channel()
 	if err != nil {
 		return nil, errors.Wrap(err, "获取通道失败")
@@ -325,7 +327,7 @@ func (r *rabbitMQ) GetQueuesLength(exclude []string) (map[string]int, error) {
 	defer func(ch *amqp.Channel) {
 		_ = ch.Close()
 	}(ch)
-	return r.getQueuesMessageCount(exclude)
+	return r.getQueuesMessageCount(exclude, onlyInclude)
 }
 
 // 生成死信队列名
@@ -422,7 +424,7 @@ func (r *rabbitMQ) getNeedUnbindDelayQueue(exchangeName ExchangeName) (bindings 
 	return bindings, nil
 }
 
-func (r *rabbitMQ) getQueuesMessageCount(exclude []string) (map[string]int, error) {
+func (r *rabbitMQ) getQueuesMessageCount(exclude []string, onlyInclude []string) (map[string]int, error) {
 	// 创建基本认证
 	url := fmt.Sprintf("http://%s:%d/api/queues%s", r.host, r.managerPort, r.vhost)
 	req, err := r.buildRequest(url)
@@ -461,6 +463,18 @@ func (r *rabbitMQ) getQueuesMessageCount(exclude []string) (map[string]int, erro
 		}
 		if ex {
 			continue
+		}
+		if len(onlyInclude) > 0 {
+			var in bool
+			for _, s := range onlyInclude {
+				if strings.Index(v.Name, s) != -1 {
+					in = true
+					break
+				}
+			}
+			if !in {
+				continue
+			}
 		}
 		m[v.Name] = v.Messages
 	}

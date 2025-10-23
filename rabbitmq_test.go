@@ -345,11 +345,13 @@ func TestGetQueuesMessageCount(t *testing.T) {
 		_ = m.Close()
 	}(m)
 	t.Log("Conn success")
-	count, err := m.getQueuesMessageCount([]string{"precheck"})
+	count, err := m.getQueuesMessageCount([]string{"precheck"}, []string{"canal"})
 	if err != nil {
 		return
 	}
-	t.Log(count)
+	for s, i := range count {
+		fmt.Println(s, i)
+	}
 }
 
 var Mysql *gorm.DB
